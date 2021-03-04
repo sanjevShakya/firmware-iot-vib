@@ -9,9 +9,13 @@ const int BAUD_RATE = 115200;
 unsigned long current_time = 0.0;
 unsigned long elapsed_time_ten;
 unsigned long elapsed_time_one;
-unsigned long elapsed_time_twoms;
+unsigned long elapsed_time_two_ms;
 
 float buf[2000];
+
+void aggregate_one_second_data();
+void aggregate_ten_second_data();
+void executeAfter(int, unsigned long, void (*callback)(void));
 
 void setup()
 {
@@ -23,23 +27,28 @@ void setup()
   current_time = millis();
 }
 
-void executeAfter(int threshold_time, unsigned long *previous_time)
+void executeAfter(int threshold_time, unsigned long *previous_time, void (*callback)(void))
 {
   if (current_time - *previous_time >= threshold_time)
   {
-    Serial.print("printing after ");
-    Serial.println(threshold_time);
+    callback();
     *previous_time = current_time;
   }
+}
+
+void aggregate_one_second_data()
+{
+  Serial.println("Aggregate One Second Data");
+}
+
+void aggregate_ten_second_data() {
+  Serial.println("Aggregate Ten Second Data");
 }
 
 void loop()
 {
   current_time = millis();
 
-  executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one);
-  executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten);
-
-  // put your main code here, to run repeatedly:
-  delay(100);
+  executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
+  executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
 }
