@@ -14,7 +14,7 @@ const int BUFFER_SIZE_TEN_SEC = 20;
 const int BAUD_RATE = 115200;
 // Replace the next variables with your SSID/Password combination
 const char *ssid = "****";
-const char *password = "*****";
+const char *password = "****";
 const char *mqtt_server = "10.42.0.1";
 const int mqtt_port = 1883;
 
@@ -41,8 +41,8 @@ bool wire_status = false;
 int buff_ten_sec_counter = 0;
 bool is_mpu_available = false;
 bool is_client_connected = false;
-bool is_mac_verified = false;
-StaticJsonDocument<300> JSONDocument;
+bool is_mac_verified = true;
+StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
 
 void setup_wifi();
@@ -55,7 +55,7 @@ void executeAfter(int, unsigned long, void (*callback)(void));
 void handleMqttRequestResponse(char *, byte *, unsigned int);
 char *get_data_endpoint();
 bool sendMessage(JsonObject, char *);
-JsonObject prepareDataPayload(double, double, double, double);
+JsonObject prepareDataPayload(double, double, double, int, double);
 JsonObject prepareBroadcastPayload();
 
 void setup_wifi()
@@ -102,9 +102,7 @@ int get_buff_ten_sec_len()
 void sample_data()
 {
   is_mpu_available = mpu.update();
-  int buf_size = get_sample_data_len();
-
-  if (is_mpu_available && buf_size <= BUFFER_SIZE)
+  if (is_mpu_available && buff_counter <= BUFFER_SIZE)
   {
     double total = sqrt(pow(mpu.getAccX(), 2) + pow(mpu.getAccY(), 2));
     buff[buff_counter] = total;
@@ -119,22 +117,22 @@ void broadcast_mac_address()
 
 void aggregate_one_second_data()
 {
-  int sample_size = get_sample_data_len();
-  Serial.print("sample_size");
-  Serial.println(sample_size);
   double mean = 0;
-  for (int i = 0; i < sample_size; i++)
+  for (int i = 0; i < buff_counter; i++)
   {
     mean += buff[i];
   }
-  mean = mean / sample_size;
-  sendMessage(prepareDataPayload(0.0, 0.0, 0.0, mean), "iot-vib/data");
-
-  // if (get_buff_ten_sec_len() <= BUFFER_SIZE_TEN_SEC)
-  // {
-  //   buff_ten_sec[buff_ten_sec_counter] = mean;
-  //   buff_ten_sec_counter++;
-  // }
+  mean = (mean / buff_counter) * 100;
+  buff_counter = 0;
+  if (buff_ten_sec_counter <= BUFFER_SIZE_TEN_SEC)
+  {
+    buff_ten_sec[buff_ten_sec_counter] = mean;
+    buff_ten_sec_counter++;
+  }
+  Serial.print('One second mean data =');
+  Serial.println(mean);
+  
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 1, mean), "iot-vib/data");
 }
 
 void setup_mqtt()
@@ -180,10 +178,12 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     }
     String deviceMacId = doc["deviceMACId"];
     bool verified = doc["verified"];
-    if (deviceMacId == device_mac_address && verified)
+    if (deviceMacId == WiFi.macAddress() && verified)
     {
       is_mac_verified = true;
-    } else {
+    }
+    else
+    {
       is_mac_verified = false;
     }
   }
@@ -191,7 +191,16 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
 
 void aggregate_ten_second_data()
 {
-  Serial.println("Aggregate Ten Second Data");
+  double mean = 0;
+  for (int i = 0; i < buff_ten_sec_counter; i++)
+  {
+    mean += buff_ten_sec[i];
+  }
+  mean = (mean / buff_ten_sec_counter) * 100;
+  Serial.print("10 second Mean data ");
+  Serial.println(mean);
+  buff_ten_sec_counter = 0;
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 10, mean), "iot-vib/data");
 }
 
 void espclient_reconnect()
@@ -222,28 +231,29 @@ void espclient_reconnect()
   }
 }
 
-JsonObject prepareDataPayload(double ax, double ay, double az, double mean)
+JsonObject prepareDataPayload(double ax, double ay, double az, int period, double mean)
 {
   JsonObject jsonObject = JSONDocument.to<JsonObject>();
-  jsonObject["deviceMACId"] = device_mac_address;
+  jsonObject["deviceMACId"] = WiFi.macAddress();
   jsonObject["ax"] = ax;
   jsonObject["ay"] = ay;
   jsonObject["az"] = az;
   jsonObject["mean"] = mean;
+  jsonObject["period"] = period;
   return jsonObject;
 }
 
 JsonObject prepareBroadcastPayload()
 {
   JsonObject jsonObject = JSONDocument.to<JsonObject>();
-  jsonObject["deviceMACId"] = device_mac_address;
+  jsonObject["deviceMACId"] = WiFi.macAddress();
   jsonObject["isVerified"] = is_mac_verified;
   return jsonObject;
 }
 
 bool sendMessage(JsonObject jsonObject, char *endpoint)
 {
-  char JSONmessageBuffer[100];
+  char JSONmessageBuffer[200];
   serializeJson(jsonObject, JSONmessageBuffer);
   if (client.publish(endpoint, JSONmessageBuffer) == true)
   {
@@ -291,7 +301,7 @@ void loop()
     {
       executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
       executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
-      // executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
+      executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
     }
   }
 }
