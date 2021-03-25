@@ -3,6 +3,7 @@
 #include <PubSubClient.h>
 #include "MPU9250.h"
 #include <WiFi.h>
+#include "config.h"
 
 #define SDA 21
 #define SCL 22
@@ -13,10 +14,6 @@ const int BUFFER_SIZE = 200;
 const int BUFFER_SIZE_TEN_SEC = 20;
 const int BAUD_RATE = 115200;
 // Replace the next variables with your SSID/Password combination
-const char *ssid = "****";
-const char *password = "****";
-const char *mqtt_server = "10.42.0.1";
-const int mqtt_port = 1883;
 
 char *data_endpoint = "iot-vib/data";
 char *broadcast_endpoint = "iot-vib/broadcast";
@@ -41,7 +38,7 @@ bool wire_status = false;
 int buff_ten_sec_counter = 0;
 bool is_mpu_available = false;
 bool is_client_connected = false;
-bool is_mac_verified = true;
+bool is_mac_verified = false;
 StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
 
