@@ -13,7 +13,6 @@ const int PERIOD_TWO_MS = 2;
 const int BUFFER_SIZE = 200;
 const int BUFFER_SIZE_TEN_SEC = 20;
 const int BAUD_RATE = 115200;
-// Replace the next variables with your SSID/Password combination
 
 char *data_endpoint = "iot-vib/data";
 char *broadcast_endpoint = "iot-vib/broadcast";
@@ -117,9 +116,9 @@ void aggregate_one_second_data()
   double mean = 0;
   for (int i = 0; i < buff_counter; i++)
   {
-    mean += buff[i];
+    mean += buff[i] * 100;
   }
-  mean = (mean / buff_counter) * 100;
+  mean = (mean / buff_counter);
   buff_counter = 0;
   if (buff_ten_sec_counter <= BUFFER_SIZE_TEN_SEC)
   {
@@ -193,7 +192,7 @@ void aggregate_ten_second_data()
   {
     mean += buff_ten_sec[i];
   }
-  mean = (mean / buff_ten_sec_counter) * 100;
+  mean = (mean / buff_ten_sec_counter);
   Serial.print("10 second Mean data ");
   Serial.println(mean);
   buff_ten_sec_counter = 0;
