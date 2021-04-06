@@ -2,7 +2,7 @@
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include "MPU9250.h"
-#include <WiFi.h>
+#include <WiFiManager.h>
 #include "config.h"
 
 #define SDA 21
@@ -37,7 +37,7 @@ bool wire_status = false;
 int buff_ten_sec_counter = 0;
 bool is_mpu_available = false;
 bool is_client_connected = false;
-bool is_mac_verified = false;
+bool is_mac_verified = true;
 StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
 
@@ -56,24 +56,17 @@ JsonObject prepareBroadcastPayload();
 
 void setup_wifi()
 {
-  // We start by connecting to a WiFi network
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED)
+  WiFiManager wm;
+  bool res; 
+  res = wm.autoConnect("LNS_ESP","lns@P@ssw0rd"); // password protected ap
+  if(!res) 
   {
-    delay(500);
-    Serial.print(".");
+      Serial.println("Failed to connect");
+  } 
+  else 
+  {
+      Serial.println("Connection Successful!");
   }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  device_mac_address = WiFi.macAddress();
 }
 
 void executeAfter(int threshold_time, unsigned long *previous_time, void (*callback)(void))
@@ -265,8 +258,8 @@ bool sendMessage(JsonObject jsonObject, char *endpoint)
 
 void setup()
 {
-  // put your setup code here, to run once:
-  Serial.begin(BAUD_RATE);
+  WiFi.mode(WIFI_STA); 
+  Serial.begin(BAUD_RATE); 
   wire_status = Wire.begin();
   while (!Serial || !wire_status)
   {
