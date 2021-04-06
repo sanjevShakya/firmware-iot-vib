@@ -7,11 +7,13 @@
 
 #define SDA 21
 #define SCL 22
+const int PERIOD_FIVE_MINUTES = 300000;
 const int PERIOD_TEN_SECONDS = 10000;
 const int PERIOD_ONE_SECOND = 1000;
 const int PERIOD_TWO_MS = 2;
 const int BUFFER_SIZE = 200;
 const int BUFFER_SIZE_TEN_SEC = 20;
+const int BUFFER_SIZE_FIVE_MIN = 50;
 const int BAUD_RATE = 115200;
 
 char *data_endpoint = "iot-vib/data";
@@ -30,16 +32,19 @@ unsigned long current_time = 0.0;
 unsigned long elapsed_time_ten;
 unsigned long elapsed_time_one;
 unsigned long elapsed_time_two_ms;
+unsigned long elapsed_time_fivemins;
 
 int buff_counter = 0;
 float buff[BUFFER_SIZE];
 bool wire_status = false;
 int buff_ten_sec_counter = 0;
+int buff_five_min_counter = 0;
 bool is_mpu_available = false;
 bool is_client_connected = false;
 bool is_mac_verified = true;
 StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
+float buff_five_min[BUFFER_SIZE_FIVE_MIN];
 
 void setup_wifi();
 void setup_mqtt();
@@ -47,6 +52,7 @@ void sample_data();
 void espclient_reconnect();
 void aggregate_one_second_data();
 void aggregate_ten_second_data();
+void aggregate_five_minute_data();
 void executeAfter(int, unsigned long, void (*callback)(void));
 void handleMqttRequestResponse(char *, byte *, unsigned int);
 char *get_data_endpoint();
@@ -81,11 +87,6 @@ void executeAfter(int threshold_time, unsigned long *previous_time, void (*callb
 int get_sample_data_len()
 {
   return sizeof buff / sizeof *buff;
-}
-
-int get_buff_ten_sec_len()
-{
-  return sizeof buff_ten_sec / sizeof *buff_ten_sec;
 }
 
 void sample_data()
@@ -185,11 +186,31 @@ void aggregate_ten_second_data()
   {
     mean += buff_ten_sec[i];
   }
+  if (buff_five_min_counter <= BUFFER_SIZE_FIVE_MIN)
+  {
+    buff_five_min[buff_five_min_counter] = mean;
+    buff_five_min_counter++;
+  }
   mean = (mean / buff_ten_sec_counter);
   Serial.print("10 second Mean data ");
   Serial.println(mean);
   buff_ten_sec_counter = 0;
   sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 10, mean), "iot-vib/data");
+}
+
+void aggregate_five_minute_data()
+{
+  double mean = 0;
+  for (int i = 0; i < buff_five_min_counter; i++)
+  {
+    mean += buff_five_min[i];
+    
+  }
+  mean = (mean / buff_five_min_counter);
+  Serial.print("5 minute Mean data ");
+  Serial.println(mean);
+  buff_five_min_counter = 0;
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 5, mean), "iot-vib/data");
 }
 
 void espclient_reconnect()
@@ -291,6 +312,7 @@ void loop()
       executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
       executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
       executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
+      executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
     }
   }
 }
