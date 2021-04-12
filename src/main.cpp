@@ -7,6 +7,10 @@
 
 #define SDA 21
 #define SCL 22
+
+const int ledPin1 = 17;
+const int ledPin2 = 18;
+
 const int PERIOD_FIVE_MINUTES = 300000;
 const int PERIOD_TEN_SECONDS = 10000;
 const int PERIOD_ONE_SECOND = 1000;
@@ -46,6 +50,7 @@ StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
 float buff_five_min[BUFFER_SIZE_FIVE_MIN];
 
+void led_init();
 void setup_wifi();
 void setup_mqtt();
 void sample_data();
@@ -59,6 +64,12 @@ char *get_data_endpoint();
 bool sendMessage(JsonObject, char *);
 JsonObject prepareDataPayload(double, double, double, int, double);
 JsonObject prepareBroadcastPayload();
+
+void led_init()
+{
+  pinMode(ledPin1, OUTPUT);
+  pinMode(ledPin2, OUTPUT);
+}
 
 void setup_wifi()
 {
@@ -285,6 +296,7 @@ void setup()
   while (!Serial || !wire_status)
   {
   }
+  led_init();
   setup_wifi();
   setup_mqtt();
   current_time = millis();
@@ -302,17 +314,24 @@ void loop()
   client.loop();
   if (is_client_connected)
   {
+    digitalWrite(ledPin1, HIGH);
     current_time = millis();
     if (!is_mac_verified)
     {
       executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &broadcast_mac_address);
+      digitalWrite(ledPin2, LOW);
     }
     else
     {
+      digitalWrite(ledPin2, HIGH);
       executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
       executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
       executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
       executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
     }
+  }
+  else
+  {
+    digitalWrite(ledPin1, LOW);
   }
 }
