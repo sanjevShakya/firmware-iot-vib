@@ -23,7 +23,8 @@ const int BAUD_RATE = 115200;
 char *data_endpoint = "iot-vib/data";
 char *broadcast_endpoint = "iot-vib/broadcast";
 
-String device_mac_address;
+String stateMinThreshold;
+String stateMaxThreshold;
 
 MPU9250 mpu;
 WiFiClient espClient;
@@ -46,6 +47,7 @@ int buff_five_min_counter = 0;
 bool is_mpu_available = false;
 bool is_client_connected = false;
 bool is_mac_verified = true;
+bool is_state_given = false;
 StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
 float buff_five_min[BUFFER_SIZE_FIVE_MIN];
@@ -64,6 +66,7 @@ char *get_data_endpoint();
 bool sendMessage(JsonObject, char *);
 JsonObject prepareDataPayload(double, double, double, int, double);
 JsonObject prepareBroadcastPayload();
+JsonObject prepareBroadcastStatePayload();
 
 void led_init()
 {
@@ -74,15 +77,15 @@ void led_init()
 void setup_wifi()
 {
   WiFiManager wm;
-  bool res; 
-  res = wm.autoConnect("LNS_ESP","lns@P@ssw0rd"); // password protected ap
-  if(!res) 
+  bool res;
+  res = wm.autoConnect("LNS_ESP", "lns@P@ssw0rd"); // password protected ap
+  if (!res)
   {
-      Serial.println("Failed to connect");
-  } 
-  else 
+    Serial.println("Failed to connect");
+  }
+  else
   {
-      Serial.println("Connection Successful!");
+    Serial.println("Connection Successful!");
   }
 }
 
@@ -116,6 +119,11 @@ void broadcast_mac_address()
   sendMessage(prepareBroadcastPayload(), "iot-vib/broadcast");
 }
 
+void broadcast_state_query()
+{
+  sendMessage(prepareBroadcastStatePayload(), "iot-vib/broadcast/state");
+}
+
 void aggregate_one_second_data()
 {
   double mean = 0;
@@ -132,7 +140,7 @@ void aggregate_one_second_data()
   }
   Serial.print('One second mean data =');
   Serial.println(mean);
-  
+
   sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 1, mean), "iot-vib/data");
 }
 
@@ -156,10 +164,6 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
   }
   Serial.println();
 
-  // Feel free to add more if statements to control more GPIOs with MQTT
-
-  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
-  // Changes the output state according to the message
   if (String(topic) == "esp32/output")
   {
     Serial.print("Changing output to ");
@@ -186,6 +190,34 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     else
     {
       is_mac_verified = false;
+    }
+  }
+
+  if (String(topic) == "iot-vib/broadcast/state/verify" && is_mac_verified)
+  {
+    Serial.print("Threshold is:");
+    Serial.println(messageTemp);
+    StaticJsonDocument<200> state;
+    DeserializationError err = deserializeJson(state, messageTemp);
+    if (err)
+    {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(err.f_str());
+      return;
+    }
+    String deviceMacIdState = state["deviceMACId"];
+    String minThreshold = state["minThreshold"];
+    String maxThreshold = state["maxThreshold"];
+    bool stateVerified = state["stateVerified"];
+    stateMinThreshold = minThreshold;
+    stateMaxThreshold = maxThreshold;
+    if (deviceMacIdState == WiFi.macAddress() && stateVerified)
+    {
+      is_state_given = true;
+    }
+    else 
+    {
+      is_state_given = false;
     }
   }
 }
@@ -215,7 +247,6 @@ void aggregate_five_minute_data()
   for (int i = 0; i < buff_five_min_counter; i++)
   {
     mean += buff_five_min[i];
-    
   }
   mean = (mean / buff_five_min_counter);
   Serial.print("5 minute Mean data ");
@@ -238,6 +269,7 @@ void espclient_reconnect()
       // Subscribe
       client.subscribe("esp32/output");
       client.subscribe("iot-vib/broadcast/verify");
+      client.subscribe("iot-vib/broadcast/state/verify");
       is_client_connected = true;
     }
     else
@@ -272,13 +304,20 @@ JsonObject prepareBroadcastPayload()
   return jsonObject;
 }
 
+JsonObject prepareBroadcastStatePayload()
+{
+  JsonObject jsonObject = JSONDocument.to<JsonObject>();
+  jsonObject["deviceMACId"] = WiFi.macAddress();
+  jsonObject["isStateGiven"] = is_state_given;
+  return jsonObject;
+}
+
 bool sendMessage(JsonObject jsonObject, char *endpoint)
 {
   char JSONmessageBuffer[200];
   serializeJson(jsonObject, JSONmessageBuffer);
   if (client.publish(endpoint, JSONmessageBuffer) == true)
   {
-    // Serial.println("Success sending message");
     return true;
   }
   else
@@ -290,8 +329,8 @@ bool sendMessage(JsonObject jsonObject, char *endpoint)
 
 void setup()
 {
-  WiFi.mode(WIFI_STA); 
-  Serial.begin(BAUD_RATE); 
+  WiFi.mode(WIFI_STA);
+  Serial.begin(BAUD_RATE);
   wire_status = Wire.begin();
   while (!Serial || !wire_status)
   {
@@ -323,11 +362,18 @@ void loop()
     }
     else
     {
-      digitalWrite(ledPin2, HIGH);
-      executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
-      executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
-      executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
-      executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
+      if (!is_state_given)
+      {
+        executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &broadcast_state_query);
+      }
+      else
+      {
+        digitalWrite(ledPin2, HIGH);
+        executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
+        executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
+        executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
+        executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
+      }
     }
   }
   else
