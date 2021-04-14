@@ -218,6 +218,7 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     String minThreshold = state["minThreshold"];
     String maxThreshold = state["maxThreshold"];
     bool stateVerified = state["stateVerified"];
+    Serial.println(maxThreshold);
     stateMinThreshold = minThreshold;
     stateMaxThreshold = maxThreshold;
     if (deviceMacIdState == WiFi.macAddress() && stateVerified)
@@ -261,7 +262,7 @@ void aggregate_five_minute_data()
   Serial.print("5 minute Mean data ");
   Serial.println(mean);
   buff_five_min_counter = 0;
-  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 5, mean), "iot-vib/data");
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 300, mean), "iot-vib/data");
   lastState = currentState;
   Serial.println("Five minute mean");
   Serial.println(mean);
@@ -277,8 +278,7 @@ void aggregate_five_minute_data()
 
 void send_true_off()
 {
-  // Serial.println("Trying to broadcast state");
-  sendMessage(prepareCurrentStatePayload(), "iot-vib/broadcast/state/current");
+  sendMessage(prepareCurrentStatePayload(), "iot-vib/current-state/five-s");
 }
 
 void espclient_reconnect()
@@ -409,7 +409,6 @@ void loop()
         executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
         if (lastState == 0 && currentState == 0)
         {
-          Serial.println("TRUEOFF");
           machineState = "TRUEOFF";
           executeAfter(PERIOD_FIVE_SECOND, &elapsed_time_five, &send_true_off);
         }
