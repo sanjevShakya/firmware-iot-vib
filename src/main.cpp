@@ -14,6 +14,7 @@ const int ledPin2 = 18;
 const int PERIOD_FIVE_MINUTES = 300000;
 const int PERIOD_TEN_SECONDS = 10000;
 const int PERIOD_ONE_SECOND = 1000;
+const int PERIOD_FIVE_SECOND = 5000;
 const int PERIOD_TWO_MS = 2;
 const int BUFFER_SIZE = 200;
 const int BUFFER_SIZE_TEN_SEC = 20;
@@ -22,6 +23,11 @@ const int BAUD_RATE = 115200;
 
 char *data_endpoint = "iot-vib/data";
 char *broadcast_endpoint = "iot-vib/broadcast";
+
+char *machineState = "ON";
+
+int currentState = 1; //assume machine machineState is ON initially
+int lastState;
 
 String stateMinThreshold;
 String stateMaxThreshold;
@@ -36,6 +42,7 @@ int value = 0;
 unsigned long current_time = 0.0;
 unsigned long elapsed_time_ten;
 unsigned long elapsed_time_one;
+unsigned long elapsed_time_five;
 unsigned long elapsed_time_two_ms;
 unsigned long elapsed_time_fivemins;
 
@@ -60,6 +67,7 @@ void espclient_reconnect();
 void aggregate_one_second_data();
 void aggregate_ten_second_data();
 void aggregate_five_minute_data();
+void send_true_off();
 void executeAfter(int, unsigned long, void (*callback)(void));
 void handleMqttRequestResponse(char *, byte *, unsigned int);
 char *get_data_endpoint();
@@ -67,6 +75,7 @@ bool sendMessage(JsonObject, char *);
 JsonObject prepareDataPayload(double, double, double, int, double);
 JsonObject prepareBroadcastPayload();
 JsonObject prepareBroadcastStatePayload();
+JsonObject prepareCurrentStatePayload();
 
 void led_init()
 {
@@ -209,6 +218,7 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     String minThreshold = state["minThreshold"];
     String maxThreshold = state["maxThreshold"];
     bool stateVerified = state["stateVerified"];
+    Serial.println(maxThreshold);
     stateMinThreshold = minThreshold;
     stateMaxThreshold = maxThreshold;
     if (deviceMacIdState == WiFi.macAddress() && stateVerified)
@@ -252,7 +262,23 @@ void aggregate_five_minute_data()
   Serial.print("5 minute Mean data ");
   Serial.println(mean);
   buff_five_min_counter = 0;
-  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 5, mean), "iot-vib/data");
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 300, mean), "iot-vib/data");
+  lastState = currentState;
+  Serial.println("Five minute mean");
+  Serial.println(mean);
+  if(mean < stateMaxThreshold.toDouble())
+  {
+    currentState = 0; //washing machine is OFF
+  }
+  else
+  {
+    currentState = 1;  //washing machine is ON
+  }
+}
+
+void send_true_off()
+{
+  sendMessage(prepareCurrentStatePayload(), "iot-vib/current-state/five-s");
 }
 
 void espclient_reconnect()
@@ -312,6 +338,14 @@ JsonObject prepareBroadcastStatePayload()
   return jsonObject;
 }
 
+JsonObject prepareCurrentStatePayload()
+{
+  JsonObject jsonObject = JSONDocument.to<JsonObject>();
+  jsonObject["deviceMACId"] = WiFi.macAddress();
+  jsonObject["state"] = machineState;
+  return jsonObject;
+}
+
 bool sendMessage(JsonObject jsonObject, char *endpoint)
 {
   char JSONmessageBuffer[200];
@@ -366,13 +400,23 @@ void loop()
       {
         executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &broadcast_state_query);
       }
-      else
+      else if(is_state_given)
       {
         digitalWrite(ledPin2, HIGH);
         executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
         executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
         executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
         executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
+        if (lastState == 0 && currentState == 0)
+        {
+          machineState = "TRUEOFF";
+          executeAfter(PERIOD_FIVE_SECOND, &elapsed_time_five, &send_true_off);
+        }
+        else
+        {
+          machineState = "ON";
+          executeAfter(PERIOD_FIVE_SECOND, &elapsed_time_five, &send_true_off);
+        }
       }
     }
   }
