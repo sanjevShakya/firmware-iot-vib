@@ -38,6 +38,7 @@ String stateMinThreshold;
 String stateFiveMThreshold;
 String stateTenSThreshold;
 
+String mqttClientId;
 MPU9250 mpu;
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -185,7 +186,7 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     {
       is_mac_verified = true;
     }
-    else
+    else if(deviceMacId == WiFi.macAddress() && !verified)
     {
       is_mac_verified = false;
     }
@@ -238,7 +239,8 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
       return;
     }
     String deviceMacId = doc["deviceMACId"];
-    if(deviceMacId == WiFi.macAddress()) {
+    if (deviceMacId == WiFi.macAddress())
+    {
       ESP.restart();
     }
   }
@@ -294,7 +296,7 @@ void aggregate_ten_second_data()
   {
     machineStateTenS = "ON";
   }
-  else 
+  else
   {
     machineStateTenS = "OFF";
   }
@@ -349,9 +351,7 @@ void espclient_reconnect()
   {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    String clientId = "ESP32-";
-    clientId += String(random(0xffff), HEX);
-    if (client.connect(clientId.c_str()))
+    if (client.connect(mqttClientId.c_str()))
     {
       Serial.println("connected");
       // Subscribe
@@ -442,6 +442,8 @@ void setup()
   }
   led_init();
   setup_wifi();
+  String clientId = "ESP32-";
+  mqttClientId = clientId + String(random(0xffff), HEX);
   setup_mqtt();
   current_time = millis();
   mpu.setup(0x68);
@@ -462,8 +464,6 @@ void loop()
     current_time = millis();
     if (!is_mac_verified)
     {
-      // Serial.println("Broadcasting mac verify");
-      // Serial.println(is_mac_verified);
       executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one_mac, &broadcast_mac_address);
       digitalWrite(ledPin2, LOW);
     }
