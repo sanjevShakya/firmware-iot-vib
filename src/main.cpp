@@ -282,7 +282,7 @@ void aggregate_ten_second_data()
   buff_ten_sec_counter = 0;
   sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 10, mean), "iot-vib/data");
   lastStateTenS = currentStateTenS;
-  if (isnan(mean) || mean - stateMinThreshold.toDouble() < stateTenSThreshold.toDouble())
+  if (isnan(mean) || abs(mean - stateMinThreshold.toDouble()) < stateTenSThreshold.toDouble())
   {
     currentStateTenS = 0;
   }
@@ -316,7 +316,7 @@ void aggregate_five_minute_data()
   lastStateFiveM = currentStateFiveM;
   Serial.println("Five minute mean");
   Serial.println(mean);
-  if (isnan(mean) || mean - stateMinThreshold.toDouble() < stateFiveMThreshold.toDouble())
+  if (isnan(mean) || abs(mean - stateMinThreshold.toDouble()) < stateFiveMThreshold.toDouble())
   {
     currentStateFiveM = 0; //washing machine is OFF
   }
