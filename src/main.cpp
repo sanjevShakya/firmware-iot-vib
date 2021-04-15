@@ -24,13 +24,19 @@ const int BAUD_RATE = 115200;
 char *data_endpoint = "iot-vib/data";
 char *broadcast_endpoint = "iot-vib/broadcast";
 
-char *machineState = "ON";
+//machine states for five minute
+char *machineStateFiveM = "OFF";
+int currentStateFiveM = 0; //assume machine machineStateFiveM is ON initially
+int lastStateFiveM;
 
-int currentState = 1; //assume machine machineState is ON initially
-int lastState;
+//machine states for ten seconds
+char *machineStateTenS = "OFF";
+int currentStateTenS = 0;
+int lastStateTenS;
 
 String stateMinThreshold;
-String stateMaxThreshold;
+String stateFiveMThreshold;
+String stateTenSThreshold;
 
 MPU9250 mpu;
 WiFiClient espClient;
@@ -42,6 +48,7 @@ int value = 0;
 unsigned long current_time = 0.0;
 unsigned long elapsed_time_ten;
 unsigned long elapsed_time_one;
+unsigned long elapsed_time_one_mac;
 unsigned long elapsed_time_five;
 unsigned long elapsed_time_two_ms;
 unsigned long elapsed_time_fivemins;
@@ -68,6 +75,7 @@ void aggregate_one_second_data();
 void aggregate_ten_second_data();
 void aggregate_five_minute_data();
 void send_true_off();
+void send_ten_sec_state();
 void executeAfter(int, unsigned long, void (*callback)(void));
 void handleMqttRequestResponse(char *, byte *, unsigned int);
 char *get_data_endpoint();
@@ -75,7 +83,8 @@ bool sendMessage(JsonObject, char *);
 JsonObject prepareDataPayload(double, double, double, int, double);
 JsonObject prepareBroadcastPayload();
 JsonObject prepareBroadcastStatePayload();
-JsonObject prepareCurrentStatePayload();
+JsonObject prepareFiveMStatePayload();
+JsonObject prepareTenSStatePayload();
 
 void led_init()
 {
@@ -131,26 +140,6 @@ void broadcast_mac_address()
 void broadcast_state_query()
 {
   sendMessage(prepareBroadcastStatePayload(), "iot-vib/broadcast/state");
-}
-
-void aggregate_one_second_data()
-{
-  double mean = 0;
-  for (int i = 0; i < buff_counter; i++)
-  {
-    mean += buff[i] * 100;
-  }
-  mean = (mean / buff_counter);
-  buff_counter = 0;
-  if (buff_ten_sec_counter <= BUFFER_SIZE_TEN_SEC)
-  {
-    buff_ten_sec[buff_ten_sec_counter] = mean;
-    buff_ten_sec_counter++;
-  }
-  Serial.print('One second mean data =');
-  Serial.println(mean);
-
-  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 1, mean), "iot-vib/data");
 }
 
 void setup_mqtt()
@@ -216,14 +205,16 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     }
     String deviceMacIdState = state["deviceMACId"];
     String minThreshold = state["minThreshold"];
-    String maxThreshold = state["maxThreshold"];
+    String fiveMThreshold = state["fiveMThreshold"];
+    String tenSThreshold = state["tenSThreshold"];
     bool stateVerified = state["stateVerified"];
     if (deviceMacIdState != WiFi.macAddress())
     {
       return;
     }
     stateMinThreshold = minThreshold;
-    stateMaxThreshold = maxThreshold;
+    stateFiveMThreshold = fiveMThreshold;
+    stateTenSThreshold = tenSThreshold;
     if (deviceMacIdState == WiFi.macAddress() && stateVerified)
     {
       is_state_given = true;
@@ -253,6 +244,26 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
   }
 }
 
+void aggregate_one_second_data()
+{
+  double mean = 0;
+  for (int i = 0; i < buff_counter; i++)
+  {
+    mean += buff[i] * 100;
+  }
+  mean = (mean / buff_counter);
+  buff_counter = 0;
+  if (buff_ten_sec_counter <= BUFFER_SIZE_TEN_SEC)
+  {
+    buff_ten_sec[buff_ten_sec_counter] = mean;
+    buff_ten_sec_counter++;
+  }
+  Serial.print('One second mean data =');
+  Serial.println(mean);
+
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 1, mean), "iot-vib/data");
+}
+
 void aggregate_ten_second_data()
 {
   double mean = 0;
@@ -270,6 +281,24 @@ void aggregate_ten_second_data()
   Serial.println(mean);
   buff_ten_sec_counter = 0;
   sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 10, mean), "iot-vib/data");
+  lastStateTenS = currentStateTenS;
+  if (isnan(mean) || mean - stateMinThreshold.toDouble() < stateTenSThreshold.toDouble())
+  {
+    currentStateTenS = 0;
+  }
+  else
+  {
+    currentStateTenS = 1;
+  }
+  if (lastStateTenS == 1 || currentStateTenS == 1)
+  {
+    machineStateTenS = "ON";
+  }
+  else 
+  {
+    machineStateTenS = "OFF";
+  }
+  send_ten_sec_state();
 }
 
 void aggregate_five_minute_data()
@@ -284,22 +313,32 @@ void aggregate_five_minute_data()
   Serial.println(mean);
   buff_five_min_counter = 0;
   sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 300, mean), "iot-vib/data");
-  lastState = currentState;
+  lastStateFiveM = currentStateFiveM;
   Serial.println("Five minute mean");
   Serial.println(mean);
-  if (mean < stateMaxThreshold.toDouble())
+  if (isnan(mean) || mean - stateMinThreshold.toDouble() < stateFiveMThreshold.toDouble())
   {
-    currentState = 0; //washing machine is OFF
+    currentStateFiveM = 0; //washing machine is OFF
   }
   else
   {
-    currentState = 1; //washing machine is ON
+    currentStateFiveM = 1; //washing machine is ON
+  }
+  if (lastStateFiveM == 0 && currentStateFiveM == 0)
+  {
+    machineStateFiveM = "TRUEOFF";
+    send_true_off();
   }
 }
 
 void send_true_off()
 {
-  sendMessage(prepareCurrentStatePayload(), "iot-vib/current-state/five-s");
+  sendMessage(prepareFiveMStatePayload(), "iot-vib/current-state/five-m");
+}
+
+void send_ten_sec_state()
+{
+  sendMessage(prepareTenSStatePayload(), "iot-vib/current-state/ten-s");
 }
 
 void espclient_reconnect()
@@ -360,11 +399,19 @@ JsonObject prepareBroadcastStatePayload()
   return jsonObject;
 }
 
-JsonObject prepareCurrentStatePayload()
+JsonObject prepareFiveMStatePayload()
 {
   JsonObject jsonObject = JSONDocument.to<JsonObject>();
   jsonObject["deviceMACId"] = WiFi.macAddress();
-  jsonObject["state"] = machineState;
+  jsonObject["state"] = machineStateFiveM;
+  return jsonObject;
+}
+
+JsonObject prepareTenSStatePayload()
+{
+  JsonObject jsonObject = JSONDocument.to<JsonObject>();
+  jsonObject["deviceMACId"] = WiFi.macAddress();
+  jsonObject["state"] = machineStateTenS;
   return jsonObject;
 }
 
@@ -413,7 +460,9 @@ void loop()
     current_time = millis();
     if (!is_mac_verified)
     {
-      executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &broadcast_mac_address);
+      // Serial.println("Broadcasting mac verify");
+      // Serial.println(is_mac_verified);
+      executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one_mac, &broadcast_mac_address);
       digitalWrite(ledPin2, LOW);
     }
     else
@@ -429,16 +478,6 @@ void loop()
         executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &aggregate_one_second_data);
         executeAfter(PERIOD_TEN_SECONDS, &elapsed_time_ten, &aggregate_ten_second_data);
         executeAfter(PERIOD_FIVE_MINUTES, &elapsed_time_fivemins, &aggregate_five_minute_data);
-        if (lastState == 0 && currentState == 0)
-        {
-          machineState = "TRUEOFF";
-          executeAfter(PERIOD_FIVE_SECOND, &elapsed_time_five, &send_true_off);
-        }
-        else
-        {
-          machineState = "ON";
-          executeAfter(PERIOD_FIVE_SECOND, &elapsed_time_five, &send_true_off);
-        }
       }
     }
   }
