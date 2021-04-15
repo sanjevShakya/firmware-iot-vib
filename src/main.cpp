@@ -349,7 +349,9 @@ void espclient_reconnect()
   {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (client.connect("ESP8266Client"))
+    String clientId = "ESP32-";
+    clientId += String(random(0xffff), HEX);
+    if (client.connect(clientId.c_str()))
     {
       Serial.println("connected");
       // Subscribe
