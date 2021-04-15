@@ -53,7 +53,7 @@ int buff_ten_sec_counter = 0;
 int buff_five_min_counter = 0;
 bool is_mpu_available = false;
 bool is_client_connected = false;
-bool is_mac_verified = true;
+bool is_mac_verified = false;
 bool is_state_given = false;
 StaticJsonDocument<400> JSONDocument;
 float buff_ten_sec[BUFFER_SIZE_TEN_SEC];
@@ -182,7 +182,7 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
   {
     Serial.print("message received ");
     Serial.println(messageTemp);
-    StaticJsonDocument<200> doc;
+    StaticJsonDocument<300> doc;
     DeserializationError error = deserializeJson(doc, messageTemp);
     if (error)
     {
@@ -206,7 +206,7 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
   {
     Serial.print("Threshold is:");
     Serial.println(messageTemp);
-    StaticJsonDocument<200> state;
+    StaticJsonDocument<300> state;
     DeserializationError err = deserializeJson(state, messageTemp);
     if (err)
     {
@@ -218,16 +218,37 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
     String minThreshold = state["minThreshold"];
     String maxThreshold = state["maxThreshold"];
     bool stateVerified = state["stateVerified"];
-    Serial.println(maxThreshold);
+    if (deviceMacIdState != WiFi.macAddress())
+    {
+      return;
+    }
     stateMinThreshold = minThreshold;
     stateMaxThreshold = maxThreshold;
     if (deviceMacIdState == WiFi.macAddress() && stateVerified)
     {
       is_state_given = true;
     }
-    else 
+    else
     {
       is_state_given = false;
+    }
+  }
+
+  if (String(topic) == "iot-vib/device-restart" && is_mac_verified)
+  {
+    Serial.print("Delete Data:");
+    Serial.println(messageTemp);
+    StaticJsonDocument<300> doc;
+    DeserializationError err = deserializeJson(doc, messageTemp);
+    if (err)
+    {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(err.f_str());
+      return;
+    }
+    String deviceMacId = doc["deviceMACId"];
+    if(deviceMacId == WiFi.macAddress()) {
+      ESP.restart();
     }
   }
 }
@@ -266,13 +287,13 @@ void aggregate_five_minute_data()
   lastState = currentState;
   Serial.println("Five minute mean");
   Serial.println(mean);
-  if(mean < stateMaxThreshold.toDouble())
+  if (mean < stateMaxThreshold.toDouble())
   {
     currentState = 0; //washing machine is OFF
   }
   else
   {
-    currentState = 1;  //washing machine is ON
+    currentState = 1; //washing machine is ON
   }
 }
 
@@ -296,6 +317,7 @@ void espclient_reconnect()
       client.subscribe("esp32/output");
       client.subscribe("iot-vib/broadcast/verify");
       client.subscribe("iot-vib/broadcast/state/verify");
+      client.subscribe("iot-vib/device-restart");
       is_client_connected = true;
     }
     else
@@ -400,7 +422,7 @@ void loop()
       {
         executeAfter(PERIOD_ONE_SECOND, &elapsed_time_one, &broadcast_state_query);
       }
-      else if(is_state_given)
+      else if (is_state_given)
       {
         digitalWrite(ledPin2, HIGH);
         executeAfter(PERIOD_TWO_MS, &elapsed_time_two_ms, &sample_data);
