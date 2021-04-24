@@ -9,9 +9,8 @@
 //#define SDA 21
 //#define SCL 22
 
-const int ledPin1 = 34;
-const int ledPin2 = 35;
-
+const int ledPin1 = 17;
+const int ledPin2 = 18;
 
 const int PERIOD_FIVE_MINUTES = 300000;
 const int PERIOD_TEN_SECONDS = 10000;
@@ -42,8 +41,7 @@ String stateTenSThreshold;
 
 String mqttClientId;
 
-MPU9250 mpu(SPI,5);
-int status;
+MPU9250 mpu;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -128,17 +126,20 @@ int get_sample_data_len()
 }
 
 
+
 void sample_data()
 {
-  is_mpu_available = mpu.begin();
+
+  is_mpu_available = mpu.update();
   if (is_mpu_available && buff_counter <= BUFFER_SIZE)
   {
-    double total = sqrt(pow(mpu.getAccelX_mss(), 2) + pow(mpu.getAccelY_mss(), 2));
+    double total = sqrt(pow(mpu.getAccX(), 2) + pow(mpu.getAccY(), 2));
     buff[buff_counter] = total;
     buff_counter++;
   }
 
 }
+
 
 
 void broadcast_mac_address()
@@ -163,6 +164,7 @@ void handleMqttRequestResponse(char *topic, byte *message, unsigned int length)
   Serial.print(topic);
   Serial.print(". Message: ");
   String messageTemp;
+
   for (int i = 0; i < length; i++)
   {
     Serial.print((char)message[i]);
@@ -271,7 +273,7 @@ void aggregate_one_second_data()
   Serial.print('One second mean data =');
   Serial.println(mean);
 
-  sendMessage(prepareDataPayload(mpu.getAccelX_mss(), mpu.getAccelY_mss(), mpu.getAccelZ_mss(), 1, mean), "iot-vib/data");
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 1, mean), "iot-vib/data");
 }
 
 void aggregate_ten_second_data()
@@ -290,7 +292,7 @@ void aggregate_ten_second_data()
   Serial.print("10 second Mean data ");
   Serial.println(mean);
   buff_ten_sec_counter = 0;
-  sendMessage(prepareDataPayload(mpu.getAccelX_mss(), mpu.getAccelY_mss(), mpu.getAccelZ_mss(), 10, mean), "iot-vib/data");
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 10, mean), "iot-vib/data");
   lastStateTenS = currentStateTenS;
   if (isnan(mean) || abs(mean - stateMinThreshold.toDouble()) < stateTenSThreshold.toDouble())
   {
@@ -322,7 +324,7 @@ void aggregate_five_minute_data()
   Serial.print("5 minute Mean data ");
   Serial.println(mean);
   buff_five_min_counter = 0;
-  sendMessage(prepareDataPayload(mpu.getAccelX_mss(), mpu.getAccelY_mss(), mpu.getAccelZ_mss(), 300, mean), "iot-vib/data");
+  sendMessage(prepareDataPayload(mpu.getAccX(), mpu.getAccY(), mpu.getAccZ(), 300, mean), "iot-vib/data");
   lastStateFiveM = currentStateFiveM;
   Serial.println("Five minute mean");
   Serial.println(mean);
@@ -444,36 +446,22 @@ void setup()
 {
   WiFi.mode(WIFI_STA);
   Serial.begin(BAUD_RATE);
-  
 // Commented wire here
-//wire_status = Wire.begin();
-  status = mpu.begin();
-  if (status < 0) {
-    Serial.println("IMU initialization unsuccessful");
-    Serial.println("Check IMU wiring or try cycling power");
-    Serial.print("Status: ");
-    Serial.println(status);
-    while(1) {}
+  
+  wire_status = Wire.begin();
+  while (!Serial || !wire_status)
+  {
   }
-   
+  
   led_init();
   setup_wifi();
   String clientId = "ESP32-";
   mqttClientId = clientId + String(random(0xffff), HEX);
   setup_mqtt();
   current_time = millis();
-  //mpu.setup(0x68);
+  mpu.setup(0x68);
   delay(5000);
-  //mpu.calibrateAccelGyro();
-  
-  // setting the accelerometer full scale range to +/-8G 
-  mpu.setAccelRange(MPU9250::ACCEL_RANGE_8G);
-  // setting the gyroscope full scale range to +/-500 deg/s
-  mpu.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
-  // setting DLPF bandwidth to 20 Hz
-  mpu.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
-  // setting SRD to 19 for a 50 Hz update rate
-  mpu.setSrd(19);
+  mpu.calibrateAccelGyro();
 }
 
 void loop()
