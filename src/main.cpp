@@ -369,6 +369,7 @@ void espclient_reconnect()
       client.subscribe("iot-vib/broadcast/verify");
       client.subscribe("iot-vib/broadcast/state/verify");
       client.subscribe("iot-vib/device-restart");
+      client.subscribe("iot-vib/calibrate");
       is_client_connected = true;
     }
     else
