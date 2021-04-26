@@ -414,6 +414,7 @@ JsonObject prepareNotificationPayload()
   JsonObject jsonObject = JSONDocument.to<JsonObject>();
   jsonObject["deviceMACId"] = WiFi.macAddress();
   jsonObject["sendNoti"] = true;
+  jsonObject["ds"] = machineState;
   return jsonObject;
 }
 
